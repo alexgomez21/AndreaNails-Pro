@@ -1,0 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --radius: 0.875rem;
+  --background: oklch(0.985 0.008 20);
+  --foreground: oklch(0.25 0.04 15);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.25 0.04 15);
+  --primary: oklch(0.72 0.08 18);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.94 0.02 30);
+  --secondary-foreground: oklch(0.3 0.05 15);
+  --muted: oklch(0.96 0.012 25);
+  --muted-foreground: oklch(0.5 0.03 20);
+  --accent: oklch(0.88 0.05 35);
+  --accent-foreground: oklch(0.25 0.05 20);
+  --destructive: oklch(0.6 0.2 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.65 0.13 150);
+  --gold: oklch(0.78 0.11 80);
+  --border: oklch(0.9 0.015 25);
+  --input: oklch(0.92 0.015 25);
+  --ring: oklch(0.72 0.08 18);
+}
+
+.dark {
+  --background: oklch(0.18 0.015 15);
+  --foreground: oklch(0.96 0.01 20);
+  --card: oklch(0.23 0.02 15);
+  --card-foreground: oklch(0.96 0.01 20);
+  --primary: oklch(0.78 0.09 18);
+  --primary-foreground: oklch(0.2 0.03 15);
+  --secondary: oklch(0.28 0.025 20);
+  --secondary-foreground: oklch(0.95 0.01 20);
+  --muted: oklch(0.27 0.02 15);
+  --muted-foreground: oklch(0.7 0.02 20);
+  --accent: oklch(0.4 0.06 30);
+  --accent-foreground: oklch(0.96 0.01 20);
+  --destructive: oklch(0.65 0.2 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.7 0.13 150);
+  --gold: oklch(0.82 0.12 80);
+  --border: oklch(0.3 0.02 15);
+  --input: oklch(0.3 0.02 15);
+}
+
+html, body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Inter', sans-serif;
+  min-height: 100vh;
+}
+
+.font-display { font-family: 'Cormorant Garamond', serif; letter-spacing: 0.01em; }
+
+.input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.625rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.95rem;
+  font-family: 'Inter', sans-serif;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 20%, transparent);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+button { cursor: pointer; border: none; background: none; font-family: inherit; }
+select, textarea { font-family: 'Inter', sans-serif; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
