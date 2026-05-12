@@ -1,12 +1,12 @@
-import { useRef } from "react";
-import { ArrowLeft, Moon, Bell, Download, Upload, Trash2 } from "lucide-react";
+import { useAuth } from "../lib/auth";
+import { ArrowLeft, Moon, Bell, Download, LogOut, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useStore } from "../lib/store";
 import type { Page } from "../App";
 
 export function Ajustes({ navigate }: { navigate: (p: Page) => void }) {
-  const { settings, setSettings, exportData, importData, resetAll } = useStore();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const { settings, setSettings, exportData, resetAll } = useStore();
+  const { logout } = useAuth();
 
   const doExport = () => {
     const blob = new Blob([exportData()], { type: "application/json" });
@@ -17,15 +17,6 @@ export function Ajustes({ navigate }: { navigate: (p: Page) => void }) {
     a.click();
     URL.revokeObjectURL(url);
     toast.success("Exportado");
-  };
-
-  const doImport = (file: File) => {
-    const r = new FileReader();
-    r.onload = () => {
-      if (importData(String(r.result))) toast.success("Datos importados");
-      else toast.error("Archivo inválido");
-    };
-    r.readAsText(file);
   };
 
   const enableNotifications = async () => {
@@ -56,16 +47,15 @@ export function Ajustes({ navigate }: { navigate: (p: Page) => void }) {
           style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "1rem", borderTop: "1px solid var(--border)", textAlign: "left" }}>
           <Download size={20} style={{ color: "var(--primary)" }} /> <span>Exportar datos</span>
         </button>
-        <button onClick={() => fileRef.current?.click()}
-          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "1rem", borderTop: "1px solid var(--border)", textAlign: "left" }}>
-          <Upload size={20} style={{ color: "var(--primary)" }} /> <span>Importar datos</span>
-          <input ref={fileRef} type="file" accept="application/json" style={{ display: "none" }}
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) doImport(f); }} />
-        </button>
         <button
-          onClick={() => { if (confirm("¿Borrar TODOS los datos? Esta acción no se puede deshacer.")) { resetAll(); toast.success("Datos borrados"); } }}
+          onClick={() => { if (confirm("¿Borrar TODOS los datos?")) { resetAll(); toast.success("Datos borrados"); } }}
           style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "1rem", borderTop: "1px solid var(--border)", textAlign: "left", color: "var(--destructive)" }}>
           <Trash2 size={20} /> <span>Borrar todos los datos</span>
+        </button>
+        <button
+          onClick={() => { logout(); toast.success("Sesión cerrada"); }}
+          style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "1rem", borderTop: "1px solid var(--border)", textAlign: "left", color: "var(--destructive)" }}>
+          <LogOut size={20} /> <span>Cerrar sesión</span>
         </button>
       </div>
 
@@ -77,7 +67,7 @@ export function Ajustes({ navigate }: { navigate: (p: Page) => void }) {
           listado de deudas, finanzas con ingresos, gastos, inversión y retiros.
         </p>
         <p style={{ fontSize: "0.75rem", color: "var(--muted-foreground)", marginTop: 12 }}>
-          Hecho con cariño <span className="font-display" style={{ fontStyle: "italic" }}>by: Alex Gomez</span> · {new Date().toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}
+          Hecho con cariño <span className="font-display" style={{ fontStyle: "italic" }}>by: Alex Gomez</span>
         </p>
       </div>
     </div>
