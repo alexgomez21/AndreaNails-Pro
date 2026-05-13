@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, X, Pencil, Trash2, TrendingUp, TrendingDown, PiggyBank, Wallet, AlertCircle } from "lucide-react";
+import { Plus, X, Pencil, Trash2, TrendingUp, TrendingDown, PiggyBank, Wallet, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 import { useStore, formatCOP, type Movement, type MovementKind, type MovementSource } from "../lib/store";
@@ -17,47 +17,58 @@ const KIND_LABELS: Record<MovementKind, string> = {
   ingreso_inversion: "Ingreso", gasto: "Gasto", inversion: "Inversión", retiro: "Retiro",
 };
 
-type Period = "dia" | "semana" | "mes";
-
 export function Movimientos({ navigate }: { navigate: (p: Page) => void }) {
   const { movements, deleteMovement } = useStore();
-  const [period, setPeriod] = useState<Period>("mes");
+  const now = new Date();
+
+  const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth();
+  const ym = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}`;
+  const monthLabel = new Date(cursor.year, cursor.month, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+
+  const shiftMonth = (n: number) => {
+    setCursor((c) => {
+      let m = c.month + n;
+      let y = c.year;
+      if (m > 11) { m = 0; y++; }
+      if (m < 0) { m = 11; y--; }
+      return { year: y, month: m };
+    });
+  };
+
   const [filter, setFilter] = useState<MovementKind | "all">("all");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Movement | null>(null);
 
-  const now = new Date();
-  const filtered = useMemo(() => {
-    return movements.filter((m) => {
-      if (filter !== "all" && m.kind !== filter) return false;
-      const d = new Date(`${m.date}T00:00:00`);
-      if (period === "dia") return d.toDateString() === now.toDateString();
-      if (period === "semana") {
-        const s = new Date(now); s.setDate(now.getDate() - now.getDay()); return d >= s;
-      }
-      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-    }).sort((a, b) => b.date.localeCompare(a.date));
-  }, [movements, period, filter]);
+  const monthMovs = useMemo(() =>
+    movements.filter((m) => m.date.startsWith(ym)), [movements, ym]);
+
+  const filtered = useMemo(() =>
+    (filter === "all" ? monthMovs : monthMovs.filter((m) => m.kind === filter))
+      .sort((a, b) => b.date.localeCompare(a.date)),
+    [monthMovs, filter]);
 
   const totals = useMemo(() => {
-    let ing = 0, gas = 0, inv = 0, ret = 0, cash = 0, nequi = 0;
+    let ing = 0, gas = 0, inv = 0, ret = 0;
+    monthMovs.forEach((m) => {
+      if (m.kind === "ingreso_inversion") ing += m.amount;
+      else if (m.kind === "gasto") gas += m.amount;
+      else if (m.kind === "inversion") inv += m.amount;
+      else if (m.kind === "retiro") ret += m.amount;
+    });
+    return { ing, gas, inv, ret, net: ing - gas - ret };
+  }, [monthMovs]);
+
+  // All-time balance
+  const balance = useMemo(() => {
+    let cash = 0, nequi = 0;
     movements.forEach((m) => {
-      const d = new Date(`${m.date}T00:00:00`);
-      const inPeriod = period === "dia" ? d.toDateString() === now.toDateString()
-        : period === "semana" ? d >= new Date(new Date().setDate(now.getDate() - now.getDay()))
-        : d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      if (inPeriod) {
-        if (m.kind === "ingreso_inversion") ing += m.amount;
-        else if (m.kind === "gasto") gas += m.amount;
-        else if (m.kind === "inversion") inv += m.amount;
-        else if (m.kind === "retiro") ret += m.amount;
-      }
       const sign = m.kind === "ingreso_inversion" ? 1 : -1;
       if (m.source === "efectivo") cash += sign * m.amount;
       else nequi += sign * m.amount;
     });
-    return { ing, gas, inv, ret, cash, nequi };
-  }, [movements, period]);
+    return { cash, nequi };
+  }, [movements]);
 
   const chartData = [
     { name: "Ingresos", value: totals.ing, fill: "var(--success)" },
@@ -81,8 +92,9 @@ export function Movimientos({ navigate }: { navigate: (p: Page) => void }) {
         <AlertCircle size={16} style={{ color: "var(--primary)" }} /> Ver clientas con deuda →
       </button>
 
+      {/* Balance total */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-        {[{ label: "Efectivo", value: totals.cash }, { label: "Nequi", value: totals.nequi }].map((s) => (
+        {[{ label: "Efectivo total", value: balance.cash }, { label: "Nequi total", value: balance.nequi }].map((s) => (
           <div key={s.label} style={{ borderRadius: "1rem", background: "linear-gradient(135deg, color-mix(in oklab, var(--primary) 90%, transparent), var(--accent))", padding: "1rem", color: "var(--primary-foreground)" }}>
             <div style={{ fontSize: "0.75rem", opacity: 0.9 }}>{s.label}</div>
             <div className="font-display" style={{ fontSize: "1.5rem", marginTop: 4 }}>{formatCOP(s.value)}</div>
@@ -90,17 +102,21 @@ export function Movimientos({ navigate }: { navigate: (p: Page) => void }) {
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 4, padding: 4, background: "var(--secondary)", borderRadius: 9999, fontSize: "0.875rem" }}>
-        {(["dia", "semana", "mes"] as Period[]).map((p) => (
-          <button key={p} onClick={() => setPeriod(p)}
-            style={{ flex: 1, padding: "0.5rem", borderRadius: 9999, textTransform: "capitalize",
-              background: period === p ? "var(--card)" : "transparent",
-              color: period === p ? "var(--foreground)" : "var(--muted-foreground)",
-              boxShadow: period === p ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-            }}>{p}</button>
-        ))}
+      {/* Month navigator */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--card)", border: "1px solid var(--border)", borderRadius: "1rem", padding: "0.625rem 0.75rem" }}>
+        <button onClick={() => shiftMonth(-1)} style={{ padding: 6, borderRadius: "50%", display: "grid", placeItems: "center", color: "var(--muted-foreground)" }}>
+          <ChevronLeft size={20} />
+        </button>
+        <div style={{ textAlign: "center" }}>
+          <div className="font-display" style={{ fontSize: "1.125rem", textTransform: "capitalize", color: "var(--foreground)" }}>{monthLabel}</div>
+          {isCurrentMonth && <div style={{ fontSize: "0.6875rem", color: "var(--primary)", marginTop: 1 }}>Mes actual</div>}
+        </div>
+        <button onClick={() => shiftMonth(1)} disabled={isCurrentMonth} style={{ padding: 6, borderRadius: "50%", display: "grid", placeItems: "center", color: isCurrentMonth ? "var(--border)" : "var(--muted-foreground)" }}>
+          <ChevronRight size={20} />
+        </button>
       </div>
 
+      {/* Month totals */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
         {[
           { icon: TrendingUp, label: "Ingresos", value: totals.ing, color: "var(--success)" },
@@ -117,22 +133,36 @@ export function Movimientos({ navigate }: { navigate: (p: Page) => void }) {
         ))}
       </div>
 
-      <div style={{ borderRadius: "1rem", background: "var(--card)", border: "1px solid var(--border)", padding: "1rem" }}>
-        <h3 className="font-display" style={{ fontSize: "1.125rem", marginBottom: 8 }}>Resumen del período</h3>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={chartData}>
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-            <YAxis hide />
-            <Tooltip formatter={(v: number) => formatCOP(v)} contentStyle={{ borderRadius: 12, border: "1px solid var(--border)" }} />
-            <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-              {chartData.map((entry, index) => (
-                <rect key={index} fill={entry.fill} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      {/* Net */}
+      <div style={{ borderRadius: "1rem", background: "var(--card)", border: "1px solid var(--border)", padding: "0.875rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: "0.875rem", color: "var(--muted-foreground)" }}>Neto del mes</span>
+        <span className="font-display" style={{ fontSize: "1.5rem", color: totals.net >= 0 ? "var(--success)" : "var(--destructive)" }}>
+          {totals.net >= 0 ? "+" : ""}{formatCOP(totals.net)}
+        </span>
       </div>
 
+      {/* Chart */}
+      {monthMovs.length > 0 && (
+        <div style={{ borderRadius: "1rem", background: "var(--card)", border: "1px solid var(--border)", padding: "1rem" }}>
+          <h3 className="font-display" style={{ fontSize: "1.125rem", marginBottom: 8, textTransform: "capitalize" }}>
+            Resumen — {monthLabel}
+          </h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={chartData}>
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis hide />
+              <Tooltip formatter={(v: number) => formatCOP(v)} contentStyle={{ borderRadius: 12, border: "1px solid var(--border)" }} />
+              <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                {chartData.map((entry, index) => (
+                  <rect key={index} fill={entry.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Filter chips */}
       <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
         {[{ key: "all", label: "Todos" }, ...Object.entries(KIND_LABELS).map(([k, l]) => ({ key: k, label: l }))].map(({ key, label }) => (
           <button key={key} onClick={() => setFilter(key as MovementKind | "all")}
@@ -143,9 +173,12 @@ export function Movimientos({ navigate }: { navigate: (p: Page) => void }) {
         ))}
       </div>
 
+      {/* Movements list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {filtered.length === 0 ? (
-          <p style={{ textAlign: "center", color: "var(--muted-foreground)", padding: "1.5rem 0" }}>Sin movimientos.</p>
+          <p style={{ textAlign: "center", color: "var(--muted-foreground)", padding: "1.5rem 0" }}>
+            Sin movimientos en {monthLabel}.
+          </p>
         ) : filtered.map((m) => (
           <div key={m.id} style={{ borderRadius: "0.75rem", background: "var(--card)", border: "1px solid var(--border)", padding: "0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -193,11 +226,11 @@ function MovementForm({ initial, onClose }: { initial?: Movement; onClose: () =>
   const [comment, setComment] = useState(initial?.comment || "");
   const [source, setSource] = useState<MovementSource>(initial?.source || "efectivo");
 
-  const submit = () => {
+  const submit = async () => {
     if (!amount) return toast.error("Ingresa monto");
     const data = { kind, category, amount: Number(amount), date, comment, source };
-    if (initial) { updateMovement(initial.id, data); toast.success("Actualizado"); }
-    else { addMovement(data); toast.success("Registrado"); }
+    if (initial) { await updateMovement(initial.id, data); toast.success("Actualizado"); }
+    else { await addMovement(data); toast.success("Registrado"); }
     onClose();
   };
 

@@ -1,16 +1,33 @@
-import { useMemo } from "react";
-import { Calendar, CheckCircle2, Clock, TrendingUp, Wallet, AlertCircle, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Calendar, CheckCircle2, Clock, TrendingUp, Wallet, AlertCircle, Users, ChevronLeft, ChevronRight } from "lucide-react";
 import { useStore, formatCOP, appointmentTotal, appointmentDebt } from "../lib/store";
 import type { Page } from "../App";
 
 export function Home({ navigate }: { navigate: (p: Page) => void }) {
   const { appointments, movements } = useStore();
   const now = new Date();
-  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  // Month cursor — starts on current month
+  const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth();
+
+  const ym = `${cursor.year}-${String(cursor.month + 1).padStart(2, "0")}`;
+  const monthLabel = new Date(cursor.year, cursor.month, 1).toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+
+  const shiftMonth = (n: number) => {
+    setCursor((c) => {
+      let m = c.month + n;
+      let y = c.year;
+      if (m > 11) { m = 0; y++; }
+      if (m < 0) { m = 11; y--; }
+      return { year: y, month: m };
+    });
+  };
 
   const monthAppts = appointments.filter((a) => a.date.startsWith(ym));
   const done = monthAppts.filter((a) => a.status === "realizado").length;
   const pending = monthAppts.filter((a) => a.status === "pendiente").length;
+  const cancelled = monthAppts.filter((a) => a.status === "cancelado").length;
 
   const todayStr = now.toISOString().slice(0, 10);
   const today = appointments
@@ -20,6 +37,7 @@ export function Home({ navigate }: { navigate: (p: Page) => void }) {
   const debts = appointments.filter((a) => appointmentDebt(a) > 0 && a.status !== "cancelado");
   const totalDebt = debts.reduce((s, a) => s + appointmentDebt(a), 0);
 
+  // Balance total (all time, all movements)
   const balance = useMemo(() => {
     let cash = 0, nequi = 0;
     movements.forEach((m) => {
@@ -30,9 +48,12 @@ export function Home({ navigate }: { navigate: (p: Page) => void }) {
     return { cash, nequi };
   }, [movements]);
 
-  const monthIncome = movements
-    .filter((m) => m.date.startsWith(ym) && m.kind === "ingreso_inversion")
-    .reduce((s, m) => s + m.amount, 0);
+  // Month financials
+  const monthMovs = movements.filter((m) => m.date.startsWith(ym));
+  const monthIncome = monthMovs.filter((m) => m.kind === "ingreso_inversion").reduce((s, m) => s + m.amount, 0);
+  const monthExpenses = monthMovs.filter((m) => m.kind === "gasto").reduce((s, m) => s + m.amount, 0);
+  const monthWithdrawals = monthMovs.filter((m) => m.kind === "retiro").reduce((s, m) => s + m.amount, 0);
+  const monthNet = monthIncome - monthExpenses - monthWithdrawals;
 
   const frequentClients = useMemo(() => {
     const map = new Map<string, number>();
@@ -50,60 +71,99 @@ export function Home({ navigate }: { navigate: (p: Page) => void }) {
   }, [monthAppts]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+
+      {/* Header */}
       <section>
-        <h1 className="font-display" style={{ fontSize: "1.875rem", color: "var(--foreground)" }}>Hola, Andrea ✨</h1>
-        <p style={{ color: "var(--muted-foreground)", fontSize: "0.875rem", marginTop: 4 }}>
-          Resumen de {now.toLocaleDateString("es-CO", { month: "long", year: "numeric" })}
-        </p>
+        <h1 className="font-display" style={{ fontSize: "1.875rem", color: "var(--foreground)" }}>
+          {isCurrentMonth ? "Hola, Andrea ✨" : "Resumen histórico"}
+        </h1>
       </section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-        <StatCard icon={Calendar} label="Citas del mes" value={monthAppts.length} accent />
-        <StatCard icon={CheckCircle2} label="Realizadas" value={done} />
-        <StatCard icon={Clock} label="Pendientes" value={pending} />
-        <StatCard icon={TrendingUp} label="Ingresos mes" value={formatCOP(monthIncome)} small />
+      {/* Month navigator */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--card)", border: "1px solid var(--border)", borderRadius: "1rem", padding: "0.625rem 0.75rem" }}>
+        <button onClick={() => shiftMonth(-1)} style={{ padding: 6, borderRadius: "50%", display: "grid", placeItems: "center", color: "var(--muted-foreground)" }}>
+          <ChevronLeft size={20} />
+        </button>
+        <div style={{ textAlign: "center" }}>
+          <div className="font-display" style={{ fontSize: "1.125rem", textTransform: "capitalize", color: "var(--foreground)" }}>{monthLabel}</div>
+          {isCurrentMonth && <div style={{ fontSize: "0.6875rem", color: "var(--primary)", marginTop: 1 }}>Mes actual</div>}
+        </div>
+        <button onClick={() => shiftMonth(1)} disabled={isCurrentMonth} style={{ padding: 6, borderRadius: "50%", display: "grid", placeItems: "center", color: isCurrentMonth ? "var(--border)" : "var(--muted-foreground)" }}>
+          <ChevronRight size={20} />
+        </button>
       </div>
 
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+        <StatCard icon={Calendar} label="Total citas" value={monthAppts.length} accent />
+        <StatCard icon={CheckCircle2} label="Realizadas" value={done} />
+        <StatCard icon={Clock} label="Pendientes" value={pending} />
+        <StatCard icon={TrendingUp} label="Canceladas" value={cancelled} />
+      </div>
+
+      {/* Month financials */}
+      <div style={{ borderRadius: "1rem", background: "var(--card)", border: "1px solid var(--border)", padding: "1rem" }}>
+        <h3 className="font-display" style={{ fontSize: "1.125rem", marginBottom: 12 }}>Finanzas del mes</h3>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {[
+            { label: "Ingresos", value: monthIncome, color: "var(--success)" },
+            { label: "Gastos", value: monthExpenses, color: "var(--destructive)" },
+            { label: "Retiros", value: monthWithdrawals, color: "var(--primary)" },
+            { label: "Neto", value: monthNet, color: monthNet >= 0 ? "var(--success)" : "var(--destructive)" },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ padding: "0.625rem", borderRadius: "0.75rem", background: "var(--secondary)" }}>
+              <div style={{ fontSize: "0.6875rem", color: "var(--muted-foreground)" }}>{label}</div>
+              <div className="font-display" style={{ fontSize: "1rem", color, marginTop: 2 }}>{formatCOP(value)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Balance total — always shown */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
         <div style={{ borderRadius: "1rem", background: "linear-gradient(135deg, var(--primary), var(--accent))", padding: "1rem", color: "var(--primary-foreground)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.75rem", opacity: 0.9 }}>
-            <Wallet size={16} /> Efectivo
+            <Wallet size={16} /> Efectivo total
           </div>
           <div className="font-display" style={{ fontSize: "1.5rem", marginTop: 8 }}>{formatCOP(balance.cash)}</div>
         </div>
         <div style={{ borderRadius: "1rem", background: "var(--card)", border: "1px solid var(--border)", padding: "1rem" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
-            <Wallet size={16} /> Nequi
+            <Wallet size={16} /> Nequi total
           </div>
           <div className="font-display" style={{ fontSize: "1.5rem", marginTop: 8, color: "var(--foreground)" }}>{formatCOP(balance.nequi)}</div>
         </div>
       </div>
 
-      <Card title="Hoy" action={<button onClick={() => navigate("agenda")} style={{ fontSize: "0.75rem", color: "var(--primary)" }}>Ver agenda →</button>}>
-        {today.length === 0 ? (
-          <p style={{ fontSize: "0.875rem", color: "var(--muted-foreground)", padding: "0.5rem 0" }}>Sin citas hoy.</p>
-        ) : (
-          <ul style={{ listStyle: "none" }}>
-            {today.map((a) => (
-              <li key={a.id} style={{ padding: "0.5rem 0", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border)" }}>
-                <div>
-                  <div style={{ fontWeight: 500 }}>{a.clientName}</div>
-                  <div style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
-                    {a.startTime} - {a.endTime} · {formatCOP(appointmentTotal(a))}
+      {/* Today — only on current month */}
+      {isCurrentMonth && (
+        <Card title="Hoy" action={<button onClick={() => navigate("agenda")} style={{ fontSize: "0.75rem", color: "var(--primary)" }}>Ver agenda →</button>}>
+          {today.length === 0 ? (
+            <p style={{ fontSize: "0.875rem", color: "var(--muted-foreground)", padding: "0.5rem 0" }}>Sin citas hoy.</p>
+          ) : (
+            <ul style={{ listStyle: "none" }}>
+              {today.map((a) => (
+                <li key={a.id} style={{ padding: "0.5rem 0", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border)" }}>
+                  <div>
+                    <div style={{ fontWeight: 500 }}>{a.clientName}</div>
+                    <div style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
+                      {a.startTime} - {a.endTime} · {formatCOP(appointmentTotal(a))}
+                    </div>
                   </div>
-                </div>
-                <span style={{
-                  fontSize: "0.625rem", padding: "2px 8px", borderRadius: 9999,
-                  background: a.status === "realizado" ? "color-mix(in oklab, var(--success) 15%, transparent)" : "var(--secondary)",
-                  color: a.status === "realizado" ? "var(--success)" : "var(--secondary-foreground)",
-                }}>{a.status}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+                  <span style={{
+                    fontSize: "0.625rem", padding: "2px 8px", borderRadius: 9999,
+                    background: a.status === "realizado" ? "color-mix(in oklab, var(--success) 15%, transparent)" : "var(--secondary)",
+                    color: a.status === "realizado" ? "var(--success)" : "var(--secondary-foreground)",
+                  }}>{a.status}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
 
+      {/* Debts */}
       <Card title="Por cobrar" icon={AlertCircle} action={<button onClick={() => navigate("deudas")} style={{ fontSize: "0.75rem", color: "var(--primary)" }}>Ver todo →</button>}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: "0.875rem", color: "var(--muted-foreground)" }}>{debts.length} clientes</span>
@@ -111,13 +171,15 @@ export function Home({ navigate }: { navigate: (p: Page) => void }) {
         </div>
       </Card>
 
+      {/* Frequent clients & hours for selected month */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
         <Card title="Clientas frecuentes" icon={Users}>
           {frequentClients.length === 0 ? <p style={{ fontSize: "0.875rem", color: "var(--muted-foreground)" }}>Sin datos.</p> :
             <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: 4 }}>
               {frequentClients.map(([n, c]) => (
                 <li key={n} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.875rem" }}>
-                  <span>{n}</span><span style={{ color: "var(--muted-foreground)" }}>{c}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>{n}</span>
+                  <span style={{ color: "var(--muted-foreground)" }}>{c}</span>
                 </li>
               ))}
             </ul>}
@@ -139,11 +201,7 @@ export function Home({ navigate }: { navigate: (p: Page) => void }) {
 
 function StatCard({ icon: Icon, label, value, accent, small }: { icon: any; label: string; value: any; accent?: boolean; small?: boolean }) {
   return (
-    <div style={{
-      borderRadius: "1rem", padding: "1rem",
-      background: accent ? "var(--secondary)" : "var(--card)",
-      border: accent ? "none" : "1px solid var(--border)",
-    }}>
+    <div style={{ borderRadius: "1rem", padding: "1rem", background: accent ? "var(--secondary)" : "var(--card)", border: accent ? "none" : "1px solid var(--border)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.75rem", color: "var(--muted-foreground)" }}>
         <Icon size={16} /> {label}
       </div>
