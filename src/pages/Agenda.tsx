@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Plus, X, CheckCircle2, Calendar as CalIcon, ChevronLeft, ChevronRight, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { useStore, formatCOP, appointmentTotal, appointmentDebt, type Appointment, type PaymentMethod, type AppointmentService } from "../lib/store";
+import { useStore, formatCOP, appointmentTotal, appointmentDebt, type Appointment, type PaymentMethod, type AppointmentService, type MovementSource } from "../lib/store";
 import { Field } from "../components/Field";
 
 type View = "dia" | "semana" | "mes";
@@ -135,10 +135,15 @@ function MonthCalendar({ cursor, appts, onPick }: { cursor: Date; appts: Appoint
 }
 
 function ApptCard({ a, onEdit }: { a: Appointment; onEdit: () => void }) {
-  const { markCompleted, deleteAppointment, updateAppointment } = useStore();
-  const statusColor = a.status === "realizado" ? { bg: "color-mix(in oklab, var(--success) 15%, transparent)", color: "var(--success)" }
-    : a.status === "cancelado" ? { bg: "color-mix(in oklab, var(--destructive) 15%, transparent)", color: "var(--destructive)" }
-    : a.status === "pospuesto" ? { bg: "color-mix(in oklab, var(--gold) 20%, transparent)", color: "var(--gold)" }
+  const { deleteAppointment, updateAppointment } = useStore();
+  const [showPayModal, setShowPayModal] = useState(false);
+
+  const statusColor = a.status === "realizado"
+    ? { bg: "color-mix(in oklab, var(--success) 15%, transparent)", color: "var(--success)" }
+    : a.status === "cancelado"
+    ? { bg: "color-mix(in oklab, var(--destructive) 15%, transparent)", color: "var(--destructive)" }
+    : a.status === "pospuesto"
+    ? { bg: "color-mix(in oklab, var(--gold) 20%, transparent)", color: "var(--gold)" }
     : { bg: "var(--secondary)", color: "var(--secondary-foreground)" };
 
   return (
@@ -156,21 +161,29 @@ function ApptCard({ a, onEdit }: { a: Appointment; onEdit: () => void }) {
           {a.status}
         </span>
       </div>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: "0.6875rem", color: "var(--muted-foreground)" }}>Total</span>
             <span className="font-display" style={{ fontSize: "1.125rem", color: "var(--primary)" }}>{formatCOP(appointmentTotal(a))}</span>
           </div>
+          {a.prepaid > 0 && (
+            <div style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}>Abono: {formatCOP(a.prepaid)}</div>
+          )}
           {appointmentDebt(a) > 0 && (
             <div style={{ fontSize: "0.75rem", color: "var(--destructive)", fontWeight: 600 }}>Saldo: {formatCOP(appointmentDebt(a))}</div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {a.status === "pendiente" && (
             <>
-              <button onClick={() => { markCompleted(a.id); toast.success("Marcado realizado ✅"); }}
-                style={{ padding: 8, borderRadius: 8, background: "color-mix(in oklab, var(--success) 10%, transparent)", color: "var(--success)" }}>
+              {/* ✅ Chulito — abre modal de pago */}
+              <button
+                onClick={() => setShowPayModal(true)}
+                style={{ padding: 8, borderRadius: 8, background: "color-mix(in oklab, var(--success) 10%, transparent)", color: "var(--success)" }}
+                title="Marcar como realizado"
+              >
                 <CheckCircle2 size={16} />
               </button>
               <button onClick={() => { updateAppointment(a.id, { status: "pospuesto" }); toast("Pospuesto"); }}
@@ -184,9 +197,143 @@ function ApptCard({ a, onEdit }: { a: Appointment; onEdit: () => void }) {
             </>
           )}
           <button onClick={onEdit} style={{ padding: 8, borderRadius: 8 }}><Pencil size={16} /></button>
-          <button onClick={() => { if (confirm("¿Eliminar cita?")) { deleteAppointment(a.id); toast.success("Eliminada"); } }}
-            style={{ padding: 8, borderRadius: 8, color: "var(--destructive)" }}><Trash2 size={16} /></button>
+          <button
+            onClick={() => { if (confirm("¿Eliminar cita?")) { deleteAppointment(a.id); toast.success("Eliminada"); } }}
+            style={{ padding: 8, borderRadius: 8, color: "var(--destructive)" }}
+          ><Trash2 size={16} /></button>
         </div>
+      </div>
+
+      {/* Modal de método de pago */}
+      {showPayModal && (
+        <PaymentModal
+          appt={a}
+          onClose={() => setShowPayModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PaymentModal({ appt, onClose }: { appt: Appointment; onClose: () => void }) {
+  const { markCompleted, updateAppointment } = useStore();
+  const total = appointmentTotal(appt);
+  const prepaid = appt.prepaid || 0;
+  const remaining = Math.max(0, total - prepaid);
+
+  const [method, setMethod] = useState<PaymentMethod>("efectivo");
+  const [paidCash, setPaidCash] = useState(remaining.toString());
+  const [paidNequi, setPaidNequi] = useState("0");
+  const [tip, setTip] = useState(appt.tip?.toString() || "0");
+  const [loading, setLoading] = useState(false);
+
+  const confirm = async () => {
+    setLoading(true);
+    // Update payment method and amounts before marking completed
+    await updateAppointment(appt.id, {
+      paymentMethod: method,
+      paidCash: method === "mixto" ? Number(paidCash || 0) : 0,
+      paidNequi: method === "mixto" ? Number(paidNequi || 0) : 0,
+      tip: Number(tip || 0),
+    });
+    await markCompleted(appt.id);
+    toast.success("¡Servicio registrado! ✅");
+    setLoading(false);
+    onClose();
+  };
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(0,0,0,0.6)", display: "grid", placeItems: "end center" }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: "var(--card)", width: "100%", maxWidth: 448, borderRadius: "1.5rem 1.5rem 0 0", padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1rem" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 className="font-display" style={{ fontSize: "1.5rem" }}>¿Cómo pagó?</h2>
+          <button onClick={onClose}><X size={20} /></button>
+        </div>
+
+        {/* Client & total info */}
+        <div style={{ borderRadius: "0.875rem", background: "var(--secondary)", padding: "0.875rem" }}>
+          <div style={{ fontWeight: 600 }}>{appt.clientName}</div>
+          <div style={{ fontSize: "0.875rem", color: "var(--muted-foreground)", marginTop: 2 }}>
+            {appt.services.map((s) => s.name).join(", ")}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+            <span style={{ fontSize: "0.875rem", color: "var(--muted-foreground)" }}>Total del servicio</span>
+            <span className="font-display" style={{ fontSize: "1.25rem", color: "var(--primary)" }}>{formatCOP(total)}</span>
+          </div>
+          {prepaid > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+              <span style={{ fontSize: "0.875rem", color: "var(--muted-foreground)" }}>Abono previo</span>
+              <span style={{ fontSize: "0.875rem", color: "var(--success)" }}>- {formatCOP(prepaid)}</span>
+            </div>
+          )}
+          {prepaid > 0 && (
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, paddingTop: 4, borderTop: "1px solid var(--border)" }}>
+              <span style={{ fontSize: "0.875rem", fontWeight: 600 }}>Resta por pagar</span>
+              <span className="font-display" style={{ fontSize: "1.125rem", color: "var(--foreground)" }}>{formatCOP(remaining)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Payment method selector */}
+        <div>
+          <span style={{ fontSize: "0.75rem", color: "var(--muted-foreground)" }}>Método de pago</span>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
+            {([
+              { value: "efectivo", label: "💵 Efectivo" },
+              { value: "nequi", label: "📱 Nequi" },
+              { value: "mixto", label: "🔀 Mixto" },
+              { value: "pendiente", label: "⏳ Fiar" },
+            ] as { value: PaymentMethod; label: string }[]).map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setMethod(value)}
+                style={{
+                  padding: "0.75rem", borderRadius: "0.875rem", fontSize: "0.875rem", fontWeight: 500,
+                  border: `2px solid ${method === value ? "var(--primary)" : "var(--border)"}`,
+                  background: method === value ? "color-mix(in oklab, var(--primary) 10%, transparent)" : "var(--background)",
+                  color: method === value ? "var(--primary)" : "var(--foreground)",
+                  transition: "all 0.15s",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Mixto fields */}
+        {method === "mixto" && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <Field label="Efectivo"><input type="number" value={paidCash} onChange={(e) => setPaidCash(e.target.value)} className="input" /></Field>
+            <Field label="Nequi"><input type="number" value={paidNequi} onChange={(e) => setPaidNequi(e.target.value)} className="input" /></Field>
+          </div>
+        )}
+
+        {/* Propina */}
+        <Field label="Propina (opcional)">
+          <input type="number" value={tip} onChange={(e) => setTip(e.target.value)} className="input" placeholder="0" />
+        </Field>
+
+        {/* Confirm button */}
+        <button
+          onClick={confirm}
+          disabled={loading}
+          style={{
+            width: "100%", padding: "0.875rem", borderRadius: 9999,
+            background: loading ? "var(--muted)" : "var(--primary)",
+            color: "var(--primary-foreground)", fontWeight: 600, fontSize: "1rem",
+            opacity: loading ? 0.7 : 1,
+          }}
+        >
+          {loading ? "Guardando..." : "Confirmar pago ✅"}
+        </button>
       </div>
     </div>
   );
@@ -206,7 +353,7 @@ function AppointmentForm({ initial, defaultDate, onClose }: { initial?: Appointm
   const [paidCash, setPaidCash] = useState(initial?.paidCash?.toString() || "0");
   const [paidNequi, setPaidNequi] = useState(initial?.paidNequi?.toString() || "0");
   const [prepaid, setPrepaid] = useState(initial?.prepaid?.toString() || "0");
-  const [prepaidSource, setPrepaidSource] = useState(initial?.prepaidSource || "efectivo");
+  const [prepaidSource, setPrepaidSource] = useState<MovementSource>(initial?.prepaidSource || "efectivo");
   const [notes, setNotes] = useState(initial?.notes || "");
 
   const toggle = (id: string) => {
@@ -222,7 +369,7 @@ function AppointmentForm({ initial, defaultDate, onClose }: { initial?: Appointm
   const subtotal = selected.reduce((s, x) => s + x.price, 0);
   const total = subtotal - Number(discount || 0);
 
-  const submit = () => {
+  const submit = async () => {
     if (!clientName.trim()) return toast.error("Falta nombre");
     if (selected.length === 0) return toast.error("Elige al menos un servicio");
     if (endTime <= startTime) return toast.error("Hora final inválida");
@@ -231,11 +378,11 @@ function AppointmentForm({ initial, defaultDate, onClose }: { initial?: Appointm
       discount: Number(discount || 0), tip: Number(tip || 0), paymentMethod,
       paidCash: paymentMethod === "mixto" ? Number(paidCash || 0) : 0,
       paidNequi: paymentMethod === "mixto" ? Number(paidNequi || 0) : 0,
-      prepaid: Number(prepaid || 0), prepaidSource: prepaidSource as "efectivo" | "nequi",
+      prepaid: Number(prepaid || 0), prepaidSource,
       status: initial?.status || "pendiente" as const, notes,
     };
-    if (initial) { updateAppointment(initial.id, data); toast.success("Actualizada"); }
-    else { addAppointment(data); toast.success("Cita creada"); }
+    if (initial) { await updateAppointment(initial.id, data); toast.success("Actualizada"); }
+    else { await addAppointment(data); toast.success("Cita creada"); }
     onClose();
   };
 
@@ -276,29 +423,17 @@ function AppointmentForm({ initial, defaultDate, onClose }: { initial?: Appointm
           <Field label="Descuento"><input type="number" value={discount} onChange={(e) => setDiscount(e.target.value)} className="input" /></Field>
           <Field label="Propina"><input type="number" value={tip} onChange={(e) => setTip(e.target.value)} className="input" /></Field>
         </div>
-        <Field label="Forma de pago">
-          <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)} className="input">
-            <option value="efectivo">Efectivo</option>
-            <option value="nequi">Nequi</option>
-            <option value="mixto">Mixto</option>
-            <option value="pendiente">Pendiente (fiar)</option>
-          </select>
+        <Field label="Abono previo">
+          <input type="number" value={prepaid} onChange={(e) => setPrepaid(e.target.value)} className="input" />
         </Field>
-        {paymentMethod === "mixto" && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <Field label="Efectivo"><input type="number" value={paidCash} onChange={(e) => setPaidCash(e.target.value)} className="input" /></Field>
-            <Field label="Nequi"><input type="number" value={paidNequi} onChange={(e) => setPaidNequi(e.target.value)} className="input" /></Field>
-          </div>
-        )}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <Field label="Abono"><input type="number" value={prepaid} onChange={(e) => setPrepaid(e.target.value)} className="input" /></Field>
-          <Field label="Pago abono">
-            <select value={prepaidSource} onChange={(e) => setPrepaidSource(e.target.value as "efectivo" | "nequi")} className="input">
+        {Number(prepaid) > 0 && (
+          <Field label="Pago del abono">
+            <select value={prepaidSource} onChange={(e) => setPrepaidSource(e.target.value as MovementSource)} className="input">
               <option value="efectivo">Efectivo</option>
               <option value="nequi">Nequi</option>
             </select>
           </Field>
-        </div>
+        )}
         <Field label="Notas"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="input" rows={2} /></Field>
         <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid var(--border)" }}>
           <span style={{ fontSize: "0.875rem", color: "var(--muted-foreground)" }}>Total</span>
